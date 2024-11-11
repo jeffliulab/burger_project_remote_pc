@@ -12,7 +12,7 @@ from obstacle_avoid import LeftWallFollower # my own script!
 
 # 和sim版本的唯一区别是修改了识别的颜色
 
-# because burger project has not set up correctly, the real version can only use camera now.
+# THIS IS A SAVING, DUE TO SCAN LIDAR NOT WORK NOW...
 
 class LineFollowerSim:
     def __init__(self):
@@ -25,7 +25,7 @@ class LineFollowerSim:
 
         # subscribe摄像头的图像内容，然后call image_callback
         # 注意，再次提醒，callback function是由ROS订阅机制自动触发的
-        self.image_sub = rospy.Subscriber('/camera/image_processed',
+        self.image_sub = rospy.Subscriber('/camera/rgb/image_processed',
                                           Image, self.image_callback)
 
         # 发布速度控制消息Twist
@@ -46,6 +46,9 @@ class LineFollowerSim:
         self.rotation_count = 0
         self.rotation_started = False
         self.explore_state = False
+
+        # Object LeftWallFollower for avoiding the obstacle
+        self.left_wall_follower = LeftWallFollower()
 
     def image_callback(self, msg):
         """
@@ -80,28 +83,15 @@ class LineFollowerSim:
         # yellow in HSV has a Hue value around 30-60.
         hsv_image = cv2.cvtColor(resized_image, cv2.COLOR_BGR2HSV)
 
-        # blue line *********
-        lower_yellow = numpy.array([100,50,50])  
-        upper_yellow = numpy.array([140,255,255])
-
         # red line *********
-        # lower_yellow = numpy.array([0, 70, 100])  
-        # upper_yellow = numpy.array([10, 255, 200])
-
-        # yellow line
+        lower_yellow = numpy.array([0, 70, 100])  
+        upper_yellow = numpy.array([10, 255, 200])
         # lower_yellow = numpy.array([20, 100, 100]) # Textbook: [50, 50, 170]
         # upper_yellow = numpy.array([30, 255, 255]) # Textbook: [255, 255, 190]
 
         # mask hsv
         mask = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
         
-        #############################################
-        ############################################
-        #### update Nov.5, special process of complex floor image
-        mask = cv2.erode(mask, None, iterations=2)
-        mask = cv2.dilate(mask, None, iterations=2)
-
-
         # show mask hsv (hide, but keep for spare)
         cv2.imshow('mask_image', mask)
 
@@ -179,6 +169,10 @@ class LineFollowerSim:
             理论上没有其他情况了，但也有可能出现其他情况，该情况留作debug用
         """
 
+        # update obstacle status
+        # usage: argument is the detecting distance, over this distance will not detect
+        self.obstacle = self.left_wall_follower.is_obstacle_near(0.5)
+
         if self.cx >= 0 and self.cy >= 0:
             print("SITUATION 1: find yellow line")
             # Reset functional state variables
@@ -186,15 +180,15 @@ class LineFollowerSim:
             self.rotation_started = False
 
             # Proportional Control (Only P!)
-            err = self.cx - self.middle/2            
-            self.twist.linear.x = 0.05
-            angular_velocity = max(min(-float(err)/1000, self.max_angular_speed), -self.max_angular_speed)
+            err = self.cx - self.middle/2
+            self.twist.linear.x = 0.2
+            angular_velocity = max(min(-float(err) / 100, self.max_angular_speed), -self.max_angular_speed)
             self.twist.angular.z = angular_velocity 
 
             print("linear speed: ", self.twist.linear.x)
             print("angular speed:", self.twist.angular.z)
 
-        elif self.cx < 0 and self.cy < 0  and self.explore_state == False:
+        elif self.cx < 0 and self.cy < 0 and self.obstacle == False and self.explore_state == False:
             """
             原地顺时针旋转720度：
                 当旋转过程中出现黄色线条时，跳出循环
@@ -234,6 +228,10 @@ class LineFollowerSim:
             self.twist.angular.z = 0
             if self.cx >= 0 and self.cy >= 0:
                 self.explore_state = False
+
+        elif self.cx < 0 and self.cy < 0 and self.obstacle == True:
+            print("SITUATION 4: no line, but has obstacle. \nLeft_wall_follower Mode")
+            self.twist = self.left_wall_follower.follow_left_wall()
 
         else:
             # situation should not exist, debug situation

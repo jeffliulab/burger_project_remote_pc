@@ -40,6 +40,8 @@ class LeftWallFollower:
         Scan and get the Lidar data, and store in the list p
         """
         degree = 0
+        print("DEBUG: LENGTH PRINT")
+        print(len(msg.ranges))
         for i in range(0,360):
             if msg.ranges[degree] == float('inf') or msg.ranges[degree] == 0.0:
                 self.p[i] = 9.9  # 9.9 means infinite
